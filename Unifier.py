@@ -17,7 +17,7 @@
 
 #sites.google.com/site/sidedvirusartandanimation
 
-bl_info = {"name": "Unifier v0.3", "category": "All"}
+bl_info = {"name": "Unifier v0.4", "category": "All"}
 #Addon details.
 
 import bpy
@@ -45,7 +45,160 @@ class UnifierMaterialsButtonsPanel:
     def poll(cls, context):
         return context.material and (context.engine in cls.COMPAT_ENGINES)
 
+class UnifierDataButtonsPanel:
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "data"
+
+    @classmethod
+    def poll(cls, context):
+        engine = context.engine
+        return context.lamp and (engine in cls.COMPAT_ENGINES)
+
 #Real-time settings
+
+#Lamps
+class UnifierLampPreview(UnifierDataButtonsPanel, Panel):
+    bl_label = "OpenGL Preview"
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+
+    def draw(self, context):
+        self.layout.template_preview(context.lamp)
+
+class UnifierLampLamp(UnifierDataButtonsPanel, Panel):
+    bl_label = "OpenGL Lamp"
+    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_CLAY', 'BLENDER_WORKBENCH'}
+
+    def draw(self, context):
+        layout = self.layout
+
+        lamp = context.lamp
+
+        layout.row().prop(lamp, "type", expand=True)
+
+        split = layout.split()
+
+        col = split.column()
+        sub = col.column()
+        sub.prop(lamp, "color", text="")
+        sub.prop(lamp, "energy")
+
+        if lamp.type in {'POINT', 'SPOT', 'SUN'}:
+            sub.prop(lamp, "shadow_soft_size", text="Radius")
+        elif lamp.type == 'AREA':
+            sub = sub.column(align=True)
+            sub.prop(lamp, "shape", text="")
+            if lamp.shape == 'SQUARE':
+                sub.prop(lamp, "size")
+            elif lamp.shape == 'RECTANGLE':
+                sub.prop(lamp, "size", text="Size X")
+                sub.prop(lamp, "size_y", text="Size Y")
+
+        col = split.column()
+        col.prop(lamp, "specular_factor", text="Specular")
+
+class UnifierLampShadow(UnifierDataButtonsPanel, Panel):
+    bl_label = "OpenGL Shadow"
+    #COMPAT_ENGINES = {'BLENDER_EEVEE'}
+
+    @classmethod
+    def poll(cls, context):
+        lamp = context.lamp
+        engine = context.engine
+        return (lamp and lamp.type in {'POINT', 'SUN', 'SPOT', 'AREA'}) and (engine in cls.COMPAT_ENGINES)
+
+    def draw_header(self, context):
+        lamp = context.lamp
+        self.layout.prop(lamp, "use_shadow", text="")
+
+    def draw(self, context):
+        layout = self.layout
+
+        lamp = context.lamp
+
+        split = layout.split()
+        split.active = lamp.use_shadow
+
+        sub = split.column()
+        col = sub.column(align=True)
+        col.prop(lamp, "shadow_buffer_clip_start", text="Clip Start")
+        col.prop(lamp, "shadow_buffer_clip_end", text="Clip End")
+        col = sub.column()
+        col.prop(lamp, "shadow_buffer_soft", text="Soft")
+
+        col = split.column(align=True)
+        col.prop(lamp, "shadow_buffer_bias", text="Bias")
+        col.prop(lamp, "shadow_buffer_exp", text="Exponent")
+        col.prop(lamp, "shadow_buffer_bleed_bias", text="Bleed Bias")
+
+        if lamp.type == 'SUN':
+            col = layout.column()
+            col.active = lamp.use_shadow
+            col.label("Cascaded Shadow Map:")
+
+            split = col.split()
+
+            sub = split.column()
+            sub.prop(lamp, "shadow_cascade_count", text="Count")
+            sub.prop(lamp, "shadow_cascade_fade", text="Fade")
+
+            sub = split.column()
+            sub.prop(lamp, "shadow_cascade_max_distance", text="Max Distance")
+            sub.prop(lamp, "shadow_cascade_exponent", text="Distribution")
+
+        layout.separator()
+
+        layout.prop(lamp, "use_contact_shadow")
+        split = layout.split()
+        split.active = lamp.use_contact_shadow
+        col = split.column()
+        col.prop(lamp, "contact_shadow_distance", text="Distance")
+        col.prop(lamp, "contact_shadow_soft_size", text="Soft")
+
+        col = split.column()
+        col.prop(lamp, "contact_shadow_bias", text="Bias")
+        col.prop(lamp, "contact_shadow_thickness", text="Thickness")
+
+class UnifierLampSpot(UnifierDataButtonsPanel, Panel):
+    bl_label = "Spot Shape"
+    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_RENDER', 'BLENDER_CLAY', 'BLENDER_WORKBENCH'}
+
+    @classmethod
+    def poll(cls, context):
+        lamp = context.lamp
+        engine = context.engine
+        return (lamp and lamp.type == 'SPOT') and (engine in cls.COMPAT_ENGINES)
+
+    def draw(self, context):
+        layout = self.layout
+
+        lamp = context.lamp
+
+        split = layout.split()
+
+        col = split.column()
+        sub = col.column()
+        sub.prop(lamp, "spot_size", text="Size")
+        sub.prop(lamp, "spot_blend", text="Blend", slider=True)
+        col = split.column()
+        col.prop(lamp, "show_cone")
+
+class UnifierLampFalloff(UnifierDataButtonsPanel, Panel):
+    bl_label = "Falloff Curve"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_CLAY', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+
+    @classmethod
+    def poll(cls, context):
+        lamp = context.lamp
+        engine = context.engine
+
+        return (lamp and lamp.type in {'POINT', 'SPOT'} and lamp.falloff_type == 'CUSTOM_CURVE') and (engine in cls.COMPAT_ENGINES)
+
+    def draw(self, context):
+        lamp = context.lamp
+
+        self.layout.template_curve_mapping(lamp, "falloff_curve", use_negative_slope=True)
 
 #Materials
 class UnifierMaterialContext(UnifierMaterialsButtonsPanel, Panel):
@@ -554,10 +707,10 @@ def get_panels():
     exclude_panels = {
         'DATA_PT_area',
         'DATA_PT_camera_dof',
-        'DATA_PT_falloff_curve',
+        'UnifierLampFalloff',
         'DATA_PT_lamp',
-        'DATA_PT_preview',
-        'DATA_PT_spot',
+        'UnifierLampPreview',
+        'UnifierLampSpot',
         'MATERIAL_PT_context_material',
         'UnifierMaterialPreview',
         'VIEWLAYER_PT_filter',
@@ -572,6 +725,11 @@ def get_panels():
 #Renaming to "Unifier" is not necessary,
 #but will ultimately lead to better organization.
 classes = (
+    UnifierLampPreview,
+    UnifierLampLamp,
+    UnifierLampShadow,
+    UnifierLampSpot,
+    UnifierLampFalloff,
     UnifierMaterialPreview,
     UnifierMaterialContext,
     UnifierMaterialSurface,
