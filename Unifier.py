@@ -1,138 +1,30 @@
-bl_info = {"name": "Unifier", "category": "Object"}
+bl_info = {"name": "Unifier0.2", "category": "All"}
 
 import bpy
-from bpy_extras.node_utils import find_node_input, find_output_node
+from bpy_extras.node_utils import (
+        find_node_input,
+        find_output_node,
+        )
 
 from bpy.types import (
         Panel,
         Menu,
         Operator,
+        UIList,
         )
 
-
-class CYCLES_MT_sampling_presets(Menu):
-    bl_label = "Sampling Presets"
-    preset_subdir = "cycles/sampling"
-    preset_operator = "script.execute_preset"
-    COMPAT_ENGINES = {'CYCLES'}
-    draw = Menu.draw_preset
-
-
-class CYCLES_MT_integrator_presets(Menu):
-    bl_label = "Integrator Presets"
-    preset_subdir = "cycles/integrator"
-    preset_operator = "script.execute_preset"
-    COMPAT_ENGINES = {'CYCLES'}
-    draw = Menu.draw_preset
-
-
-class CyclesButtonsPanel:
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "collection"
-    
-    COMPAT_ENGINES = {'CYCLES', 'BLENDER_CLAY', 'BLENDER_WORKBENCH'}
-
-    @classmethod
-    def poll(cls, context):
-        return context.engine in cls.COMPAT_ENGINES
-
-
-def get_device_type(context):
-    return context.user_preferences.addons[__package__].preferences.compute_device_type
-
-
-def use_cpu(context):
-    cscene = context.scene.cycles
-
-    return (get_device_type(context) == 'NONE' or cscene.device == 'CPU')
-
-
-def use_opencl(context):
-    cscene = context.scene.cycles
-
-    return (get_device_type(context) == 'OPENCL' and cscene.device == 'GPU')
-
-
-def use_cuda(context):
-    cscene = context.scene.cycles
-
-    return (get_device_type(context) == 'CUDA' and cscene.device == 'GPU')
-
-
-def use_branched_path(context):
-    cscene = context.scene.cycles
-
-    return (cscene.progressive == 'BRANCHED_PATH')
-
-
-def use_sample_all_lights(context):
-    cscene = context.scene.cycles
-
-    return cscene.sample_all_lights_direct or cscene.sample_all_lights_indirect
-
-def show_device_active(context):
-    cscene = context.scene.cycles
-    if cscene.device != 'GPU':
-        return True
-    return context.user_preferences.addons[__package__].preferences.has_active_device()
-
-
-def draw_samples_info(layout, context):
-    cscene = context.scene.cycles
-    integrator = cscene.progressive
-
-    # Calculate sample values
-    if integrator == 'PATH':
-        aa = cscene.samples
-        if cscene.use_square_samples:
-            aa = aa * aa
-    else:
-        aa = cscene.aa_samples
-        d = cscene.diffuse_samples
-        g = cscene.glossy_samples
-        t = cscene.transmission_samples
-        ao = cscene.ao_samples
-        ml = cscene.mesh_light_samples
-        sss = cscene.subsurface_samples
-        vol = cscene.volume_samples
-
-        if cscene.use_square_samples:
-            aa = aa * aa
-            d = d * d
-            g = g * g
-            t = t * t
-            ao = ao * ao
-            ml = ml * ml
-            sss = sss * sss
-            vol = vol * vol
-
-    # Draw interface
-    # Do not draw for progressive, when Square Samples are disabled
-    if use_branched_path(context) or (cscene.use_square_samples and integrator == 'PATH'):
-        col = layout.column(align=True)
-        col.scale_y = 0.6
-        col.label("Total Samples:")
-        col.separator()
-        if integrator == 'PATH':
-            col.label("%s AA" % aa)
-        else:
-            col.label("%s AA, %s Diffuse, %s Glossy, %s Transmission" %
-                      (aa, d * aa, g * aa, t * aa))
-            col.separator()
-            col.label("%s AO, %s Mesh Light, %s Subsurface, %s Volume" %
-                      (ao * aa, ml * aa, sss * aa, vol * aa))
-
+class UnifierButtonsPanel:
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOL_PROPS"
 
 #EEVEE settings
-class RENDER_PT_eevee_ambient_occlusion(CyclesButtonsPanel, Panel):
+class RENDER_PT_eevee_ambient_occlusion(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtao"
     bl_label = "Real-Time: GTAO"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw_header(self, context):
         scene = context.scene
@@ -153,14 +45,13 @@ class RENDER_PT_eevee_ambient_occlusion(CyclesButtonsPanel, Panel):
         col.prop(props, "gtao_quality")
 
 
-class RENDER_PT_eevee_motion_blur(CyclesButtonsPanel, Panel):
+class RENDER_PT_eevee_motion_blur(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtmb"
     bl_label = "Real-Time: Motion Blur"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw_header(self, context):
         scene = context.scene
@@ -178,14 +69,13 @@ class RENDER_PT_eevee_motion_blur(CyclesButtonsPanel, Panel):
         col.prop(props, "motion_blur_shutter")
 
 
-class RENDER_PT_eevee_depth_of_field(CyclesButtonsPanel, Panel):
+class RENDER_PT_eevee_depth_of_field(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtdof"
     bl_label = "Real-Time: DOF"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw_header(self, context):
         scene = context.scene
@@ -203,14 +93,13 @@ class RENDER_PT_eevee_depth_of_field(CyclesButtonsPanel, Panel):
         col.prop(props, "bokeh_threshold")
 
 
-class RENDER_PT_eevee_bloom(CyclesButtonsPanel, Panel):
+class RENDER_PT_eevee_bloom(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtblm"
     bl_label = "Real-Time: Bloom"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw_header(self, context):
         scene = context.scene
@@ -232,14 +121,13 @@ class RENDER_PT_eevee_bloom(CyclesButtonsPanel, Panel):
         col.prop(props, "bloom_clamp")
 
 
-class RENDER_PT_eevee_volumetric(CyclesButtonsPanel, Panel):
+class RENDER_PT_eevee_volumetric(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtvol"
     bl_label = "Real-Time: Volumetric"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw_header(self, context):
         scene = context.scene
@@ -265,14 +153,13 @@ class RENDER_PT_eevee_volumetric(CyclesButtonsPanel, Panel):
         col.prop(props, "volumetric_colored_transmittance")
 
 
-class RENDER_PT_eevee_subsurface_scattering(CyclesButtonsPanel, Panel):
+class RENDER_PT_eevee_subsurface_scattering(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtsss"
     bl_label = "Real-Time: SSS"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw_header(self, context):
         scene = context.scene
@@ -290,14 +177,13 @@ class RENDER_PT_eevee_subsurface_scattering(CyclesButtonsPanel, Panel):
         col.prop(props, "sss_separate_albedo")
 
 
-class RENDER_PT_eevee_screen_space_reflections(CyclesButtonsPanel, Panel):
+class RENDER_PT_eevee_screen_space_reflections(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtssr"
     bl_label = "Real-Time: SSR"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw_header(self, context):
         scene = context.scene
@@ -320,14 +206,13 @@ class RENDER_PT_eevee_screen_space_reflections(CyclesButtonsPanel, Panel):
         col.prop(props, "ssr_firefly_fac")
 
 
-class RENDER_PT_eevee_shadows(CyclesButtonsPanel, Panel):
+class RENDER_PT_eevee_shadows(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtsha"
     bl_label = "Real-Time: Shadows"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw(self, context):
         layout = self.layout
@@ -341,14 +226,13 @@ class RENDER_PT_eevee_shadows(CyclesButtonsPanel, Panel):
         col.prop(props, "shadow_high_bitdepth")
 
 
-class RENDER_PT_eevee_sampling(CyclesButtonsPanel, Panel):
+class RENDER_PT_eevee_sampling(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtsam"
     bl_label = "Real-Time: Sampling"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw(self, context):
         layout = self.layout
@@ -361,14 +245,13 @@ class RENDER_PT_eevee_sampling(CyclesButtonsPanel, Panel):
         col.prop(props, "taa_reprojection")
 
 
-class RENDER_PT_eevee_indirect_lighting(CyclesButtonsPanel, Panel):
-    bl_label = "Real-Time: Indirect Lighting"
+class RENDER_PT_eevee_indirect_lighting(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtgi"
+    bl_label = "Real-Time: GI"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw(self, context):
         layout = self.layout
@@ -381,14 +264,13 @@ class RENDER_PT_eevee_indirect_lighting(CyclesButtonsPanel, Panel):
         col.prop(props, "gi_visibility_resolution")
 
 
-class RENDER_PT_eevee_film(CyclesButtonsPanel, Panel):
+class RENDER_PT_eevee_film(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtfil"
     bl_label = "Real-Time: Film"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'CYCLES', 'BLENDER_WORKBENCH', 'BLENDER_CLAY'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.engine in cls.COMPAT_ENGINES)
 
     def draw(self, context):
         layout = self.layout
@@ -404,7 +286,11 @@ class RENDER_PT_eevee_film(CyclesButtonsPanel, Panel):
         col.prop(rd, "alpha_mode", text="Alpha")
 
 #Clay settings
-class RENDER_PT_clay_settings(CyclesButtonsPanel, Panel):
+class RENDER_PT_clay_settings(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "mcset"
     bl_label = "Matcap: Settings"
     bl_options = {'DEFAULT_CLOSED'}
     COMPAT_ENGINES = {'BLENDER_CLAY', 'CYCLES', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH', 'BLENDER_RENDER'}
@@ -425,6 +311,25 @@ class RENDER_PT_clay_settings(CyclesButtonsPanel, Panel):
         col.prop(props, "matcap_ssao_distance")
         col.prop(props, "matcap_ssao_attenuation")
         col.prop(props, "matcap_hair_brightness_randomness")
+
+#WorkBench settings
+class SCENE_PT_viewport_display(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "sddisp"
+    bl_label = "Solid: Shading"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return True
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        layout.prop(scene.display, "light_direction", text="")
+        layout.prop(scene.display, "shadow_shift")
 
 def draw_device(self, context):
     scene = context.scene
@@ -485,8 +390,6 @@ def get_panels():
 
 
 classes = (
-    CYCLES_MT_sampling_presets,
-    CYCLES_MT_integrator_presets,
     RENDER_PT_eevee_ambient_occlusion,
     RENDER_PT_eevee_motion_blur,
     RENDER_PT_eevee_depth_of_field,
@@ -498,6 +401,7 @@ classes = (
     RENDER_PT_eevee_sampling,
     RENDER_PT_eevee_indirect_lighting,
     RENDER_PT_eevee_film,
+    SCENE_PT_viewport_display,
     RENDER_PT_clay_settings,
 )
 
