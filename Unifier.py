@@ -1,4 +1,24 @@
-bl_info = {"name": "Unifier0.2", "category": "All"}
+############################################
+#                     _    _  _            #
+#        |  | |\ | | |_ | |_ |_|           #
+#        \_/  | \| | |  | |_ | \           #
+#                                          #
+#  I've been quite irritated with the UI   #
+#  mess that is Blender 2.8. You normally  #
+#  need to move between engines to change  #
+# most options. This addon aims to "Unify" #
+#the engines into one large engine (Cycles)#
+#   and allow you to do things like edit   #
+#   materials from the matcap engine or    #
+#from the solid engine. You can also change#
+#the post processing effects for the real- #
+#  time engine from the toolbar as well.   #
+############################################
+
+#sites.google.com/site/sidedvirusartandanimation
+
+bl_info = {"name": "Unifier v0.3", "category": "All"}
+#Addon details.
 
 import bpy
 from bpy_extras.node_utils import (
@@ -10,20 +30,209 @@ from bpy.types import (
         Panel,
         Menu,
         Operator,
-        UIList,
         )
 
 class UnifierButtonsPanel:
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOL_PROPS"
 
-#EEVEE settings
-class RENDER_PT_eevee_ambient_occlusion(UnifierButtonsPanel, Panel):
+class UnifierMaterialsButtonsPanel:
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "material"
+
+    @classmethod
+    def poll(cls, context):
+        return context.material and (context.engine in cls.COMPAT_ENGINES)
+
+#Real-time settings
+
+#Materials
+class UnifierMaterialContext(UnifierMaterialsButtonsPanel, Panel):
+    #DO NOT enable in raytracer or real-time engine.
+    #This will lead to a duplicate material list.
+    bl_label = ""
+    bl_context = "material"
+    bl_options = {'HIDE_HEADER'}
+    COMPAT_ENGINES = {'BLENDER_CLAY', 'BLENDER_WORKBENCH'}
+
+    @classmethod
+    def poll(cls, context):
+        engine = context.engine
+        return (context.material or context.object) and (engine in cls.COMPAT_ENGINES)
+
+    def draw(self, context):
+        layout = self.layout
+
+        mat = context.material
+        ob = context.object
+        slot = context.material_slot
+        space = context.space_data
+
+        if ob:
+            is_sortable = len(ob.material_slots) > 1
+            rows = 1
+            if (is_sortable):
+                rows = 4
+
+            row = layout.row()
+
+            row.template_list("MATERIAL_UL_matslots", "", ob, "material_slots", ob, "active_material_index", rows=rows)
+
+            col = row.column(align=True)
+            col.operator("object.material_slot_add", icon='ZOOMIN', text="")
+            col.operator("object.material_slot_remove", icon='ZOOMOUT', text="")
+
+            col.menu("MATERIAL_MT_specials", icon='DOWNARROW_HLT', text="")
+
+            if is_sortable:
+                col.separator()
+
+                col.operator("object.material_slot_move", icon='TRIA_UP', text="").direction = 'UP'
+                col.operator("object.material_slot_move", icon='TRIA_DOWN', text="").direction = 'DOWN'
+
+            if ob.mode == 'EDIT':
+                row = layout.row(align=True)
+                row.operator("object.material_slot_assign", text="Assign")
+                row.operator("object.material_slot_select", text="Select")
+                row.operator("object.material_slot_deselect", text="Deselect")
+
+        split = layout.split(percentage=0.65)
+
+        if ob:
+            split.template_ID(ob, "active_material", new="material.new")
+            row = split.row()
+
+            if slot:
+                row.prop(slot, "link", text="")
+            else:
+                row.label()
+        elif mat:
+            split.template_ID(space, "pin_id")
+            split.separator()
+
+
+def panel_node_draw(layout, ntree, output_type):
+    node = find_output_node(ntree, output_type)
+
+    if node:
+        input = find_node_input(node, 'Surface')
+        if input:
+            layout.template_node_view(ntree, node, input)
+        else:
+            layout.label(text="Incompatible output node")
+    else:
+        layout.label(text="No output node")
+
+
+class UnifierMaterialSurface(UnifierMaterialsButtonsPanel, Panel):
+    bl_label = "OpenGL Surface"
+    bl_context = "material"
+    #COMPAT_ENGINES = {'BLENDER_EEVEE'}
+    #Disabling COMPAT_ENGINES for now. This means active in all engines.
+
+    @classmethod
+    def poll(cls, context):
+        engine = context.engine
+        return context.material and (engine in cls.COMPAT_ENGINES)
+
+    def draw(self, context):
+        layout = self.layout
+
+        mat = context.material
+
+        layout.prop(mat, "use_nodes", icon='NODETREE')
+        layout.separator()
+
+        if mat.use_nodes:
+            panel_node_draw(layout, mat.node_tree, ('OUTPUT_EEVEE_MATERIAL', 'OUTPUT_MATERIAL'))
+        else:
+            raym = mat.raytrace_mirror
+            layout.prop(mat, "diffuse_color", text="Base Color")
+            layout.prop(raym, "reflect_factor", text="Metallic")
+            layout.prop(mat, "specular_intensity", text="Specular")
+            layout.prop(raym, "gloss_factor", text="Roughness")
+
+class UnifierMaterialPreview(UnifierMaterialsButtonsPanel, Panel):
+    #Do not use in raytracer. When implemented to raytracer it uses raytraced preview.
+    #Implimenting it provides no real benefit. Only necessary in matcap, real-time, and solid.
+    bl_label = "Preview"
+    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_CLAY', 'BLENDER_WORKBENCH', 'BLENDER_RENDER'}
+
+    def draw(self, context):
+        self.layout.template_preview(context.material)
+
+class UnifierMaterialOptions(UnifierMaterialsButtonsPanel, Panel):
+    #This option is much different than raytracer "Settings."
+    #Controls real-time engine's transparency blending as well as SSS and SSR.
+    bl_label = "OpenGL Options"
+    bl_context = "material"
+
+    @classmethod
+    def poll(cls, context):
+        engine = context.engine
+        return context.material and (engine in cls.COMPAT_ENGINES)
+
+    def draw(self, context):
+        layout = self.layout
+
+        mat = context.material
+
+        layout.prop(mat, "blend_method")
+
+        if mat.blend_method != "OPAQUE":
+            layout.prop(mat, "transparent_shadow_method")
+
+            row = layout.row()
+            row.active = ((mat.blend_method == "CLIP") or (mat.transparent_shadow_method == "CLIP"))
+            row.prop(mat, "alpha_threshold")
+
+        if mat.blend_method not in {"OPAQUE", "CLIP", "HASHED"}:
+            layout.prop(mat, "transparent_hide_backside")
+
+        layout.prop(mat, "use_screen_refraction")
+        layout.prop(mat, "refraction_depth")
+
+        layout.prop(mat, "use_screen_subsurface")
+        row = layout.row()
+        row.active = mat.use_screen_subsurface
+        row.prop(mat, "use_sss_translucency")
+
+class UnifierMaterialViewport(UnifierMaterialsButtonsPanel, Panel):
+    #Breaks Cycles interface. Becomes duplicate.
+    bl_label = "Solid Viewport Colors"
+    bl_context = "material"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_CLAY', 'BLENDER_WORKBENCH', 'BLENDER_RENDER'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.material and CyclesButtonsPanel.poll(context)
+
+    def draw(self, context):
+        mat = context.material
+
+        layout = self.layout
+        split = layout.split()
+
+        col = split.column(align=True)
+        col.label("Color:")
+        col.prop(mat, "diffuse_color", text="")
+        
+        #The following were commented out to clean up the interface. Specular and alpha currently (19.05.18) are useless.
+        #col.prop(mat, "alpha")
+
+        #col = split.column(align=True)
+        #col.label("Specular:")
+        #col.prop(mat, "specular_color", text="")
+
+#Post Processing
+class UnifierPostProcessGTAO(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtao"
-    bl_label = "Real-Time: GTAO"
+    bl_label = "Shade: GTAO"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -45,12 +254,13 @@ class RENDER_PT_eevee_ambient_occlusion(UnifierButtonsPanel, Panel):
         col.prop(props, "gtao_quality")
 
 
-class RENDER_PT_eevee_motion_blur(UnifierButtonsPanel, Panel):
+class UnifierPostProcessBlur(UnifierButtonsPanel, Panel):
+    #TODO Redo this section when object motion blur gets implemented.
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtmb"
-    bl_label = "Real-Time: Motion Blur"
+    bl_label = "Shade: Motion Blur"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -69,12 +279,13 @@ class RENDER_PT_eevee_motion_blur(UnifierButtonsPanel, Panel):
         col.prop(props, "motion_blur_shutter")
 
 
-class RENDER_PT_eevee_depth_of_field(UnifierButtonsPanel, Panel):
+class UnifierPostProcessDOF(UnifierButtonsPanel, Panel):
+    #TODO When Clement fixes the DOF, make sure to see if this feature needs updating. 
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtdof"
-    bl_label = "Real-Time: DOF"
+    bl_label = "Shade: DOF"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -93,12 +304,12 @@ class RENDER_PT_eevee_depth_of_field(UnifierButtonsPanel, Panel):
         col.prop(props, "bokeh_threshold")
 
 
-class RENDER_PT_eevee_bloom(UnifierButtonsPanel, Panel):
+class UnifierPostProcessBloom(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtblm"
-    bl_label = "Real-Time: Bloom"
+    bl_label = "Shade: Bloom"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -121,12 +332,12 @@ class RENDER_PT_eevee_bloom(UnifierButtonsPanel, Panel):
         col.prop(props, "bloom_clamp")
 
 
-class RENDER_PT_eevee_volumetric(UnifierButtonsPanel, Panel):
+class UnifierPostProcessVolume(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtvol"
-    bl_label = "Real-Time: Volumetric"
+    bl_label = "Shade: Volume"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -153,12 +364,12 @@ class RENDER_PT_eevee_volumetric(UnifierButtonsPanel, Panel):
         col.prop(props, "volumetric_colored_transmittance")
 
 
-class RENDER_PT_eevee_subsurface_scattering(UnifierButtonsPanel, Panel):
+class UnifierPostProcessSSS(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtsss"
-    bl_label = "Real-Time: SSS"
+    bl_label = "Shade: SSS"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -177,12 +388,12 @@ class RENDER_PT_eevee_subsurface_scattering(UnifierButtonsPanel, Panel):
         col.prop(props, "sss_separate_albedo")
 
 
-class RENDER_PT_eevee_screen_space_reflections(UnifierButtonsPanel, Panel):
+class UnifierPostProcessSSR(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtssr"
-    bl_label = "Real-Time: SSR"
+    bl_label = "Shade: SSR"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -206,12 +417,12 @@ class RENDER_PT_eevee_screen_space_reflections(UnifierButtonsPanel, Panel):
         col.prop(props, "ssr_firefly_fac")
 
 
-class RENDER_PT_eevee_shadows(UnifierButtonsPanel, Panel):
+class UnifierPostProcessShadow(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtsha"
-    bl_label = "Real-Time: Shadows"
+    bl_label = "Shade: Shadows"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -226,12 +437,12 @@ class RENDER_PT_eevee_shadows(UnifierButtonsPanel, Panel):
         col.prop(props, "shadow_high_bitdepth")
 
 
-class RENDER_PT_eevee_sampling(UnifierButtonsPanel, Panel):
+class UnifierPostProcessSample(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtsam"
-    bl_label = "Real-Time: Sampling"
+    bl_label = "Shade: Sampling"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -245,12 +456,12 @@ class RENDER_PT_eevee_sampling(UnifierButtonsPanel, Panel):
         col.prop(props, "taa_reprojection")
 
 
-class RENDER_PT_eevee_indirect_lighting(UnifierButtonsPanel, Panel):
+class UnifierPostProcessGI(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtgi"
-    bl_label = "Real-Time: GI"
+    bl_label = "Shade: GI"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -264,12 +475,12 @@ class RENDER_PT_eevee_indirect_lighting(UnifierButtonsPanel, Panel):
         col.prop(props, "gi_visibility_resolution")
 
 
-class RENDER_PT_eevee_film(UnifierButtonsPanel, Panel):
+class UnifierPostProcessFilm(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtfil"
-    bl_label = "Real-Time: Film"
+    bl_label = "Shade: Film"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -285,8 +496,8 @@ class RENDER_PT_eevee_film(UnifierButtonsPanel, Panel):
         col = split.column()
         col.prop(rd, "alpha_mode", text="Alpha")
 
-#Clay settings
-class RENDER_PT_clay_settings(UnifierButtonsPanel, Panel):
+#Matcap settings
+class UnifierMatcapSettings(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
@@ -312,8 +523,8 @@ class RENDER_PT_clay_settings(UnifierButtonsPanel, Panel):
         col.prop(props, "matcap_ssao_attenuation")
         col.prop(props, "matcap_hair_brightness_randomness")
 
-#WorkBench settings
-class SCENE_PT_viewport_display(UnifierButtonsPanel, Panel):
+#Solid settings
+class UnifierSolidDisplay(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
@@ -335,34 +546,9 @@ def draw_device(self, context):
     scene = context.scene
     layout = self.layout
 
-    if context.engine == 'CYCLES':
-        from . import engine
-        cscene = scene.cycles
-
-        split = layout.split(percentage=1 / 3)
-        split.label("Feature Set:")
-        split.prop(cscene, "feature_set", text="")
-
-        split = layout.split(percentage=1 / 3)
-        split.label("Device:")
-        row = split.row()
-        row.active = show_device_active(context)
-        row.prop(cscene, "device", text="")
-
-        if engine.with_osl() and use_cpu(context):
-            layout.prop(cscene, "shading_system")
-
-
 def draw_pause(self, context):
     layout = self.layout
     scene = context.scene
-
-    if context.engine == "CYCLES":
-        view = context.space_data
-
-        cscene = scene.cycles
-        layout.prop(cscene, "preview_pause", icon="PAUSE", text="")
-
 
 def get_panels():
     exclude_panels = {
@@ -373,7 +559,7 @@ def get_panels():
         'DATA_PT_preview',
         'DATA_PT_spot',
         'MATERIAL_PT_context_material',
-        'MATERIAL_PT_preview',
+        'UnifierMaterialPreview',
         'VIEWLAYER_PT_filter',
         'VIEWLAYER_PT_layer_passes',
         'RENDER_PT_post_processing',
@@ -381,28 +567,29 @@ def get_panels():
         }
 
     panels = []
-    for panel in bpy.types.Panel.__subclasses__():
-        if hasattr(panel, 'COMPAT_ENGINES') and 'BLENDER_RENDER' in panel.COMPAT_ENGINES:
-            if panel.__name__ not in exclude_panels:
-                panels.append(panel)
-
     return panels
 
-
+#Renaming to "Unifier" is not necessary,
+#but will ultimately lead to better organization.
 classes = (
-    RENDER_PT_eevee_ambient_occlusion,
-    RENDER_PT_eevee_motion_blur,
-    RENDER_PT_eevee_depth_of_field,
-    RENDER_PT_eevee_bloom,
-    RENDER_PT_eevee_volumetric,
-    RENDER_PT_eevee_subsurface_scattering,
-    RENDER_PT_eevee_screen_space_reflections,
-    RENDER_PT_eevee_shadows,
-    RENDER_PT_eevee_sampling,
-    RENDER_PT_eevee_indirect_lighting,
-    RENDER_PT_eevee_film,
-    SCENE_PT_viewport_display,
-    RENDER_PT_clay_settings,
+    UnifierMaterialPreview,
+    UnifierMaterialContext,
+    UnifierMaterialSurface,
+    UnifierMaterialOptions,
+    UnifierMaterialViewport,
+    UnifierPostProcessGTAO,
+    UnifierPostProcessBlur,
+    UnifierPostProcessDOF,
+    UnifierPostProcessBloom,
+    UnifierPostProcessVolume,
+    UnifierPostProcessSSS,
+    UnifierPostProcessSSR,
+    UnifierPostProcessShadow,
+    UnifierPostProcessSample,
+    UnifierPostProcessGI,
+    UnifierPostProcessFilm,
+    UnifierSolidDisplay,
+    UnifierMatcapSettings,
 )
 
 
