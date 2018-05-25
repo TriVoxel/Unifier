@@ -17,20 +17,23 @@
 
 #sites.google.com/site/sidedvirusartandanimation
 
-bl_info = {"name": "Unifier v0.4", "category": "All"}
+bl_info = {"name": "Unifier v0.5", "category": "All"}
 #Addon details.
 
 import bpy
+import nodeitems_utils
 from bpy_extras.node_utils import (
         find_node_input,
         find_output_node,
         )
-
 from bpy.types import (
         Panel,
         Menu,
         Operator,
         )
+
+#With Version 0.4 bugs patched and newer Blender 2.8 build issues resolved, the next task is to unify the node editor.
+#This may be a large task. Any contributions would be appreciated here: https://developer.blender.org/T55120.
 
 class UnifierButtonsPanel:
     bl_space_type = "VIEW_3D"
@@ -60,6 +63,7 @@ class UnifierDataButtonsPanel:
 #Lamps
 class UnifierLampPreview(UnifierDataButtonsPanel, Panel):
     bl_label = "OpenGL Preview"
+    bl_options = {'DEFAULT_CLOSED'}
     COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
@@ -88,9 +92,9 @@ class UnifierLampLamp(UnifierDataButtonsPanel, Panel):
         elif lamp.type == 'AREA':
             sub = sub.column(align=True)
             sub.prop(lamp, "shape", text="")
-            if lamp.shape == 'SQUARE':
+            if lamp.shape  in {'SQUARE', 'DISK'}:
                 sub.prop(lamp, "size")
-            elif lamp.shape == 'RECTANGLE':
+            elif lamp.shape in {'RECTANGLE', 'ELLIPSE'}:
                 sub.prop(lamp, "size", text="Size X")
                 sub.prop(lamp, "size_y", text="Size Y")
 
@@ -99,6 +103,7 @@ class UnifierLampLamp(UnifierDataButtonsPanel, Panel):
 
 class UnifierLampShadow(UnifierDataButtonsPanel, Panel):
     bl_label = "OpenGL Shadow"
+    bl_options = {'DEFAULT_CLOSED'}
     #COMPAT_ENGINES = {'BLENDER_EEVEE'}
 
     @classmethod
@@ -159,8 +164,35 @@ class UnifierLampShadow(UnifierDataButtonsPanel, Panel):
         col.prop(lamp, "contact_shadow_bias", text="Bias")
         col.prop(lamp, "contact_shadow_thickness", text="Thickness")
 
+class UnifierLampArea(UnifierDataButtonsPanel, Panel):
+    bl_label = "Area Shape"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_RENDER', 'BLENDER_CLAY', 'BLENDER_WORKBENCH'}
+
+    @classmethod
+    def poll(cls, context):
+        lamp = context.lamp
+        engine = context.engine
+        return (lamp and lamp.type == 'AREA') and (engine in cls.COMPAT_ENGINES)
+
+    def draw(self, context):
+        layout = self.layout
+
+        lamp = context.lamp
+
+        col = layout.column()
+        col.row().prop(lamp, "shape", expand=True)
+        sub = col.row(align=True)
+
+        if lamp.shape in {'SQUARE', 'DISK'}:
+            sub.prop(lamp, "size")
+        elif lamp.shape in {'RECTANGLE', 'ELLIPSE'}:
+            sub.prop(lamp, "size", text="Size X")
+            sub.prop(lamp, "size_y", text="Size Y")
+
 class UnifierLampSpot(UnifierDataButtonsPanel, Panel):
     bl_label = "Spot Shape"
+    bl_options = {'DEFAULT_CLOSED'}
     COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_RENDER', 'BLENDER_CLAY', 'BLENDER_WORKBENCH'}
 
     @classmethod
@@ -213,6 +245,7 @@ class UnifierMaterialContext(UnifierMaterialsButtonsPanel, Panel):
     def poll(cls, context):
         engine = context.engine
         return (context.material or context.object) and (engine in cls.COMPAT_ENGINES)
+        #Old bug now fixed. Raytracer no longer has this duplicate option.
 
     def draw(self, context):
         layout = self.layout
@@ -281,6 +314,7 @@ def panel_node_draw(layout, ntree, output_type):
 class UnifierMaterialSurface(UnifierMaterialsButtonsPanel, Panel):
     bl_label = "OpenGL Surface"
     bl_context = "material"
+    bl_options = {'DEFAULT_CLOSED'}
     #COMPAT_ENGINES = {'BLENDER_EEVEE'}
     #Disabling COMPAT_ENGINES for now. This means active in all engines.
 
@@ -310,6 +344,7 @@ class UnifierMaterialPreview(UnifierMaterialsButtonsPanel, Panel):
     #Do not use in raytracer. When implemented to raytracer it uses raytraced preview.
     #Implimenting it provides no real benefit. Only necessary in matcap, real-time, and solid.
     bl_label = "Preview"
+    bl_options = {'DEFAULT_CLOSED'}
     COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_CLAY', 'BLENDER_WORKBENCH', 'BLENDER_RENDER'}
 
     def draw(self, context):
@@ -320,6 +355,7 @@ class UnifierMaterialOptions(UnifierMaterialsButtonsPanel, Panel):
     #Controls real-time engine's transparency blending as well as SSS and SSR.
     bl_label = "OpenGL Options"
     bl_context = "material"
+    bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):
@@ -360,7 +396,8 @@ class UnifierMaterialViewport(UnifierMaterialsButtonsPanel, Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.material and CyclesButtonsPanel.poll(context)
+        engine = context.engine
+        return context.material and (engine in cls.COMPAT_ENGINES)
 
     def draw(self, context):
         mat = context.material
@@ -651,6 +688,8 @@ class UnifierPostProcessFilm(UnifierButtonsPanel, Panel):
 
 #Matcap settings
 class UnifierMatcapSettings(UnifierButtonsPanel, Panel):
+    #Hopefully there will be a matcap shading option in 3D view.
+    #If not I may try adding this option myself.
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
@@ -694,6 +733,8 @@ class UnifierSolidDisplay(UnifierButtonsPanel, Panel):
         scene = context.scene
         layout.prop(scene.display, "light_direction", text="")
         layout.prop(scene.display, "shadow_shift")
+        #Very basic options at this point.
+        #TODO: Add more options from the 3D View header "shading" menu.
 
 def draw_device(self, context):
     scene = context.scene
@@ -705,18 +746,10 @@ def draw_pause(self, context):
 
 def get_panels():
     exclude_panels = {
-        'DATA_PT_area',
-        'DATA_PT_camera_dof',
         'UnifierLampFalloff',
-        'DATA_PT_lamp',
         'UnifierLampPreview',
         'UnifierLampSpot',
-        'MATERIAL_PT_context_material',
         'UnifierMaterialPreview',
-        'VIEWLAYER_PT_filter',
-        'VIEWLAYER_PT_layer_passes',
-        'RENDER_PT_post_processing',
-        'SCENE_PT_simplify',
         }
 
     panels = []
@@ -728,6 +761,7 @@ classes = (
     UnifierLampPreview,
     UnifierLampLamp,
     UnifierLampShadow,
+    UnifierLampArea,
     UnifierLampSpot,
     UnifierLampFalloff,
     UnifierMaterialPreview,
@@ -750,11 +784,11 @@ classes = (
     UnifierMatcapSettings,
 )
 
-
+#This section broke the addon. This could happen again. Just copy from end of raytracer's ui.py file.
 def register():
     from bpy.utils import register_class
 
-    bpy.types.RENDER_PT_render.append(draw_device)
+    bpy.types.RENDER_PT_context.append(draw_device)
     bpy.types.VIEW3D_HT_header.append(draw_pause)
 
     for panel in get_panels():
@@ -763,11 +797,11 @@ def register():
     for cls in classes:
         register_class(cls)
 
-
+#This section broke the addon. This could happen again. Just copy from end of raytracer's ui.py file.
 def unregister():
     from bpy.utils import unregister_class
 
-    bpy.types.RENDER_PT_render.remove(draw_device)
+    bpy.types.RENDER_PT_context.remove(draw_device)
     bpy.types.VIEW3D_HT_header.remove(draw_pause)
 
     for panel in get_panels():
