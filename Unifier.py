@@ -17,9 +17,8 @@
 
 #sites.google.com/site/sidedvirusartandanimation
 
-bl_info = {"name": "Unifier v0.5", "category": "All"}
+bl_info = {"name": "Unifier V:0.6", "category": "All"}
 #Addon details.
-
 import bpy
 import nodeitems_utils
 from bpy_extras.node_utils import (
@@ -30,9 +29,10 @@ from bpy.types import (
         Panel,
         Menu,
         Operator,
+        Header,
         )
 
-#With Version 0.4 bugs patched and newer Blender 2.8 build issues resolved, the next task is to unify the node editor.
+#With Version 0.4 and 0.5 bugs patched and newer Blender 2.8 build issues resolved, the next task is to unify the node editor.
 #This may be a large task. Any contributions would be appreciated here: https://developer.blender.org/T55120.
 
 class UnifierButtonsPanel:
@@ -58,6 +58,16 @@ class UnifierDataButtonsPanel:
         engine = context.engine
         return context.lamp and (engine in cls.COMPAT_ENGINES)
 
+class UnifierLightProbeButtonsPanel:
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "data"
+
+    @classmethod
+    def poll(cls, context):
+        engine = context.engine
+        return context.lightprobe and (engine in cls.COMPAT_ENGINES)
+
 #Real-time settings
 
 #Lamps
@@ -70,8 +80,50 @@ class UnifierLampPreview(UnifierDataButtonsPanel, Panel):
         self.layout.template_preview(context.lamp)
 
 class UnifierLampLamp(UnifierDataButtonsPanel, Panel):
+    bl_label = "OpenGL Lamp Properties"
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_CLAY', 'CYCLES', 'BLENDER_WORKBENCH'}
+
+    def draw(self, context):
+        layout = self.layout
+
+        lamp = context.lamp
+
+        layout.row().prop(lamp, "type", expand=True)
+
+        split = layout.split()
+
+        col = split.column()
+        sub = col.column()
+        sub.prop(lamp, "color", text="")
+        sub.prop(lamp, "energy")
+
+        if lamp.type in {'POINT', 'SPOT'}:
+            sub.label(text="Falloff:")
+            sub.prop(lamp, "falloff_type", text="")
+            sub.prop(lamp, "distance")
+            sub.prop(lamp, "shadow_soft_size", text="Radius")
+            if lamp.falloff_type == 'LINEAR_QUADRATIC_WEIGHTED':
+                col.label(text="Attenuation Factors:")
+                sub = col.column(align=True)
+                sub.prop(lamp, "linear_attenuation", slider=True, text="Linear")
+                sub.prop(lamp, "quadratic_attenuation", slider=True, text="Quadratic")
+
+            elif lamp.falloff_type == 'INVERSE_COEFFICIENTS':
+                col.label(text="Inverse Coefficients:")
+                sub = col.column(align=True)
+                sub.prop(lamp, "constant_coefficient", text="Constant")
+                sub.prop(lamp, "linear_coefficient", text="Linear")
+                sub.prop(lamp, "quadratic_coefficient", text="Quadratic")
+
+        if lamp.type == 'AREA':
+            col.prop(lamp, "distance")
+
+        col = split.column()
+        col.label()
+
+class UnifierLampLampRealTime(UnifierDataButtonsPanel, Panel):
     bl_label = "OpenGL Lamp"
-    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_CLAY', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_CLAY', 'BLENDER_WORKBENCH', 'CYCLES'}
 
     def draw(self, context):
         layout = self.layout
@@ -232,7 +284,36 @@ class UnifierLampFalloff(UnifierDataButtonsPanel, Panel):
 
         self.layout.template_curve_mapping(lamp, "falloff_curve", use_negative_slope=True)
 
-#Materials
+#Material Settings
+class UnifierRealTimeShading(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rtshg"
+    bl_label = "Mat: Shading"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return True
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+
+        view = context.space_data
+        shading = view.shading
+
+        col = layout.column()
+
+        if shading.type in ('MATERIAL', 'RENDERED', 'SOLID', 'TEXTURED'):
+            col.row().template_icon_view(shading, "studio_light")
+            if shading.studio_light_orientation == 'WORLD':
+                col.row().prop(shading, "studiolight_rot_z")
+                col.row().prop(shading, "studiolight_background")
+            col.row().prop(shading, "use_scene_light")
+
 class UnifierMaterialContext(UnifierMaterialsButtonsPanel, Panel):
     #DO NOT enable in raytracer or real-time engine.
     #This will lead to a duplicate material list.
@@ -315,13 +396,6 @@ class UnifierMaterialSurface(UnifierMaterialsButtonsPanel, Panel):
     bl_label = "OpenGL Surface"
     bl_context = "material"
     bl_options = {'DEFAULT_CLOSED'}
-    #COMPAT_ENGINES = {'BLENDER_EEVEE'}
-    #Disabling COMPAT_ENGINES for now. This means active in all engines.
-
-    @classmethod
-    def poll(cls, context):
-        engine = context.engine
-        return context.material and (engine in cls.COMPAT_ENGINES)
 
     def draw(self, context):
         layout = self.layout
@@ -416,29 +490,181 @@ class UnifierMaterialViewport(UnifierMaterialsButtonsPanel, Panel):
         #col.label("Specular:")
         #col.prop(mat, "specular_color", text="")
 
+#Light Probes
+class UnifierLightProbeContext(UnifierLightProbeButtonsPanel, Panel):
+    bl_label = ""
+    bl_options = {'HIDE_HEADER'}
+    COMPAT_ENGINES = {'BLENDER_WORKBENCH', 'BLENDER_RENDER', 'CYCLES'}
+
+    def draw(self, context):
+        layout = self.layout
+
+        ob = context.object
+        probe = context.lightprobe
+        space = context.space_data
+
+        if ob:
+            layout.template_ID(ob, "data")
+        elif probe:
+            layout.template_ID(space, "pin_id")
+
+
+class UnifierLightProbeProbe(UnifierLightProbeButtonsPanel, Panel):
+    bl_label = "Probe"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_WORKBENCH', 'BLENDER_RENDER', 'CYCLES'}
+
+    def draw(self, context):
+        layout = self.layout
+
+        ob = context.object
+        probe = context.lightprobe
+
+        split = layout.split()
+
+        if probe.type == 'GRID':
+            col = split.column(align=True)
+            col.label("Influence:")
+            col.prop(probe, "influence_distance", "Distance")
+            col.prop(probe, "falloff")
+            col.prop(probe, "intensity")
+
+            col.separator()
+
+            col.label("Resolution:")
+            col.prop(probe, "grid_resolution_x", text="X")
+            col.prop(probe, "grid_resolution_y", text="Y")
+            col.prop(probe, "grid_resolution_z", text="Z")
+        elif probe.type == 'PLANAR':
+            col = split.column(align=True)
+            col.label("Influence:")
+            col.prop(probe, "influence_distance", "Distance")
+            col.prop(probe, "falloff")
+        else:
+            col = split.column(align=True)
+            col.label("Influence:")
+            col.prop(probe, "influence_type", text="")
+
+            if probe.influence_type == 'ELIPSOID':
+                col.prop(probe, "influence_distance", "Radius")
+            else:
+                col.prop(probe, "influence_distance", "Size")
+
+            col.prop(probe, "falloff")
+            col.prop(probe, "intensity")
+
+        col = split.column(align=True)
+
+        col.label("Clipping:")
+        col.prop(probe, "clip_start", text="Start")
+
+        if probe.type != "PLANAR":
+            col.prop(probe, "clip_end", text="End")
+
+        if probe.type == 'GRID':
+            col.separator()
+
+            col.label("Visibility:")
+            col.prop(probe, "visibility_buffer_bias", "Bias")
+            col.prop(probe, "visibility_bleed_bias", "Bleed Bias")
+            col.prop(probe, "visibility_blur", "Blur")
+
+        col.separator()
+
+        col.label("Visibility Group:")
+        row = col.row(align=True)
+        row.prop(probe, "visibility_group", text="")
+        row.prop(probe, "invert_visibility_group", text="", icon='ARROW_LEFTRIGHT')
+
+
+class UnifierLightProbeParallax(UnifierLightProbeButtonsPanel, Panel):
+    bl_label = "Custom Parallax"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_WORKBENCH', 'BLENDER_RENDER', 'CYCLES'}
+
+    @classmethod
+    def poll(cls, context):
+        engine = context.engine
+        return context.lightprobe and context.lightprobe.type == 'CUBEMAP' and (engine in cls.COMPAT_ENGINES)
+
+    def draw_header(self, context):
+        probe = context.lightprobe
+        self.layout.prop(probe, "use_custom_parallax", text="")
+
+    def draw(self, context):
+        layout = self.layout
+
+        probe = context.lightprobe
+
+        col = layout.column()
+        col.active = probe.use_custom_parallax
+
+        row = col.row()
+        row.prop(probe, "parallax_type", expand=True)
+
+        if probe.parallax_type == 'ELIPSOID':
+            col.prop(probe, "parallax_distance", "Radius")
+        else:
+            col.prop(probe, "parallax_distance", "Size")
+
+
+class UnifierLightProbeDisplay(UnifierLightProbeButtonsPanel, Panel):
+    bl_label = "Display"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_WORKBENCH', 'BLENDER_RENDER', 'CYCLES'}
+
+    def draw(self, context):
+        layout = self.layout
+
+        ob = context.object
+        probe = context.lightprobe
+
+        row = layout.row()
+        row.prop(probe, "show_data")
+
+        if probe.type != "PLANAR":
+            row.prop(probe, "data_draw_size", text="Size")
+        else:
+            row.prop(ob, "empty_draw_size", text="Arrow Size")
+
+        split = layout.split()
+
+        if probe.type in {'GRID', 'CUBEMAP'}:
+            col = split.column()
+            col.prop(probe, "show_influence")
+
+            col = split.column()
+            col.prop(probe, "show_clip")
+
+        if probe.type == 'CUBEMAP':
+            col = split.column()
+            col.active = probe.use_custom_parallax
+            col.prop(probe, "show_parallax")
+
 #Post Processing
 class UnifierPostProcessGTAO(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtao"
-    bl_label = "Shade: GTAO"
+    bl_label = "Mat: GTAO"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         scene = context.scene
         props = scene.eevee
-        self.layout.prop(props, "gtao_enable", text="")
+        self.layout.prop(props, "use_gtao", text="")
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
         scene = context.scene
         props = scene.eevee
 
-        layout.active = props.gtao_enable
+        layout.active = props.use_gtao
         col = layout.column()
-        col.prop(props, "gtao_use_bent_normals")
-        col.prop(props, "gtao_bounce")
+        col.prop(props, "use_gtao_bent_normals")
+        col.prop(props, "use_gtao_bounce")
         col.prop(props, "gtao_distance")
         col.prop(props, "gtao_factor")
         col.prop(props, "gtao_quality")
@@ -450,45 +676,47 @@ class UnifierPostProcessBlur(UnifierButtonsPanel, Panel):
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtmb"
-    bl_label = "Shade: Motion Blur"
+    bl_label = "Mat: Motion Blur"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         scene = context.scene
         props = scene.eevee
-        self.layout.prop(props, "motion_blur_enable", text="")
+        self.layout.prop(props, "use_motion_blur", text="")
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
         scene = context.scene
         props = scene.eevee
 
-        layout.active = props.motion_blur_enable
+        layout.active = props.use_motion_blur
         col = layout.column()
         col.prop(props, "motion_blur_samples")
         col.prop(props, "motion_blur_shutter")
 
 
 class UnifierPostProcessDOF(UnifierButtonsPanel, Panel):
-    #TODO When Clement fixes the DOF, make sure to see if this feature needs updating. 
+    #The DOF system has been updated by Celement. 
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtdof"
-    bl_label = "Shade: DOF"
+    bl_label = "Mat: DOF"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         scene = context.scene
         props = scene.eevee
-        self.layout.prop(props, "dof_enable", text="")
+        self.layout.prop(props, "use_dof", text="")
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
         scene = context.scene
         props = scene.eevee
 
-        layout.active = props.dof_enable
+        layout.active = props.use_dof
         col = layout.column()
         col.prop(props, "bokeh_max_size")
         col.prop(props, "bokeh_threshold")
@@ -499,20 +727,22 @@ class UnifierPostProcessBloom(UnifierButtonsPanel, Panel):
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtblm"
-    bl_label = "Shade: Bloom"
+    bl_label = "Mat: Bloom"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         scene = context.scene
         props = scene.eevee
-        self.layout.prop(props, "bloom_enable", text="")
+        self.layout.prop(props, "use_bloom", text="")
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+
         scene = context.scene
         props = scene.eevee
 
-        layout.active = props.bloom_enable
+        layout.active = props.use_bloom
         col = layout.column()
         col.prop(props, "bloom_threshold")
         col.prop(props, "bloom_knee")
@@ -527,31 +757,43 @@ class UnifierPostProcessVolume(UnifierButtonsPanel, Panel):
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtvol"
-    bl_label = "Shade: Volume"
+    bl_label = "Mat: Volume"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         scene = context.scene
         props = scene.eevee
-        self.layout.prop(props, "volumetric_enable", text="")
+        self.layout.prop(props, "use_volumetric", text="")
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+
         scene = context.scene
         props = scene.eevee
 
-        layout.active = props.volumetric_enable
+        layout.active = props.use_volumetric
         col = layout.column()
-        col.prop(props, "volumetric_start")
-        col.prop(props, "volumetric_end")
+        sub = col.column(align=True)
+        sub.prop(props, "volumetric_start")
+        sub.prop(props, "volumetric_end")
         col.prop(props, "volumetric_tile_size")
+        col.separator()
         col.prop(props, "volumetric_samples")
-        col.prop(props, "volumetric_sample_distribution")
-        col.prop(props, "volumetric_lights")
-        col.prop(props, "volumetric_light_clamp")
-        col.prop(props, "volumetric_shadows")
-        col.prop(props, "volumetric_shadow_samples")
-        col.prop(props, "volumetric_colored_transmittance")
+        sub.prop(props, "volumetric_sample_distribution")
+        col.separator()
+        col.prop(props, "use_volumetric_lights")
+
+        sub = col.column()
+        sub.active = props.use_volumetric_lights
+        sub.prop(props, "volumetric_light_clamp", text="Light Clamping")
+        col.separator()
+        col.prop(props, "use_volumetric_shadows")
+        sub = col.column()
+        sub.active = props.use_volumetric_shadows
+        sub.prop(props, "volumetric_shadow_samples", text="Shadow Samples")
+        col.separator()
+        col.prop(props, "use_volumetric_colored_transmittance")
 
 
 class UnifierPostProcessSSS(UnifierButtonsPanel, Panel):
@@ -559,23 +801,27 @@ class UnifierPostProcessSSS(UnifierButtonsPanel, Panel):
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtsss"
-    bl_label = "Shade: SSS"
+    bl_label = "Mat: SSS"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         scene = context.scene
         props = scene.eevee
-        self.layout.prop(props, "sss_enable", text="")
+        self.layout.prop(props, "use_sss", text="")
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+
         scene = context.scene
         props = scene.eevee
+
+        layout.active = props.use_sss
 
         col = layout.column()
         col.prop(props, "sss_samples")
         col.prop(props, "sss_jitter_threshold")
-        col.prop(props, "sss_separate_albedo")
+        col.prop(props, "use_sss_separate_albedo")
 
 
 class UnifierPostProcessSSR(UnifierButtonsPanel, Panel):
@@ -583,23 +829,25 @@ class UnifierPostProcessSSR(UnifierButtonsPanel, Panel):
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtssr"
-    bl_label = "Shade: SSR"
+    bl_label = "Mat: SSR"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         scene = context.scene
         props = scene.eevee
-        self.layout.prop(props, "ssr_enable", text="")
+        self.layout.prop(props, "use_ssr", text="")
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+
         scene = context.scene
         props = scene.eevee
 
         col = layout.column()
-        col.active = props.ssr_enable
-        col.prop(props, "ssr_refraction")
-        col.prop(props, "ssr_halfres")
+        col.active = props.use_ssr
+        col.prop(props, "use_ssr_refraction", text="Refraction")
+        col.prop(props, "use_ssr_halfres")
         col.prop(props, "ssr_quality")
         col.prop(props, "ssr_max_roughness")
         col.prop(props, "ssr_thickness")
@@ -612,11 +860,13 @@ class UnifierPostProcessShadow(UnifierButtonsPanel, Panel):
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtsha"
-    bl_label = "Shade: Shadows"
+    bl_label = "Mat: Shadows"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+
         scene = context.scene
         props = scene.eevee
 
@@ -624,7 +874,7 @@ class UnifierPostProcessShadow(UnifierButtonsPanel, Panel):
         col.prop(props, "shadow_method")
         col.prop(props, "shadow_cube_size")
         col.prop(props, "shadow_cascade_size")
-        col.prop(props, "shadow_high_bitdepth")
+        col.prop(props, "use_shadow_high_bitdepth")
 
 
 class UnifierPostProcessSample(UnifierButtonsPanel, Panel):
@@ -632,18 +882,20 @@ class UnifierPostProcessSample(UnifierButtonsPanel, Panel):
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtsam"
-    bl_label = "Shade: Sampling"
+    bl_label = "Mat: Sampling"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+
         scene = context.scene
         props = scene.eevee
 
         col = layout.column()
         col.prop(props, "taa_samples")
         col.prop(props, "taa_render_samples")
-        col.prop(props, "taa_reprojection")
+        col.prop(props, "use_taa_reprojection")
 
 
 class UnifierPostProcessGI(UnifierButtonsPanel, Panel):
@@ -651,11 +903,13 @@ class UnifierPostProcessGI(UnifierButtonsPanel, Panel):
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtgi"
-    bl_label = "Shade: GI"
+    bl_label = "Mat: GI"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+
         scene = context.scene
         props = scene.eevee
 
@@ -670,7 +924,26 @@ class UnifierPostProcessFilm(UnifierButtonsPanel, Panel):
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "rtfil"
-    bl_label = "Shade: Film"
+    bl_label = "Mat: Film"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+
+        scene = context.scene
+        rd = scene.render
+
+        col = layout.column()
+        col.prop(rd, "filter_size")
+        col.prop(rd, "alpha_mode", text="Alpha")
+
+class UnifierPostProcessHair(UnifierButtonsPanel, Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Unifier"
+    bl_idname = "rthar"
+    bl_label = "Mat: Hair"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -678,13 +951,10 @@ class UnifierPostProcessFilm(UnifierButtonsPanel, Panel):
         scene = context.scene
         rd = scene.render
 
-        split = layout.split()
+        row = layout.row()
+        row.prop(rd, "hair_type", expand=True)
 
-        col = split.column()
-        col.prop(rd, "filter_size")
-
-        col = split.column()
-        col.prop(rd, "alpha_mode", text="Alpha")
+        layout.prop(rd, "hair_subdiv")
 
 #Matcap settings
 class UnifierMatcapSettings(UnifierButtonsPanel, Panel):
@@ -694,9 +964,8 @@ class UnifierMatcapSettings(UnifierButtonsPanel, Panel):
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
     bl_idname = "mcset"
-    bl_label = "Matcap: Settings"
+    bl_label = "Cap: Settings"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_CLAY', 'CYCLES', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH', 'BLENDER_RENDER'}
 
     def draw(self, context):
         layout = self.layout
@@ -716,12 +985,12 @@ class UnifierMatcapSettings(UnifierButtonsPanel, Panel):
         col.prop(props, "matcap_hair_brightness_randomness")
 
 #Solid settings
-class UnifierSolidDisplay(UnifierButtonsPanel, Panel):
+class UnifierSolidShading(UnifierButtonsPanel, Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Unifier"
-    bl_idname = "sddisp"
-    bl_label = "Solid: Shading"
+    bl_idname = "sdsha"
+    bl_label = "Sol: Shading"
     bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
@@ -731,10 +1000,53 @@ class UnifierSolidDisplay(UnifierButtonsPanel, Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        layout.prop(scene.display, "light_direction", text="")
-        layout.prop(scene.display, "shadow_shift")
-        #Very basic options at this point.
-        #TODO: Add more options from the 3D View header "shading" menu.
+        
+
+        view = context.space_data
+        shading = view.shading
+
+        col = layout.column()
+
+        if shading.type in ('SOLID', 'TEXTURED', 'MATERIAL', 'RENDERED'):
+            col.row().prop(shading, "light", expand=True)
+            col.row().prop(shading, "color_type", expand=True)
+
+            if shading.color_type == 'SINGLE':
+                col.row().prop(shading, "single_color", text="")
+
+            if shading.light == 'STUDIO':
+                col.row().template_icon_view(shading, "studio_light")
+                if shading.studio_light_orientation == 'WORLD':
+                    col.row().prop(shading, "studiolight_rot_z")
+
+                row = col.row()
+                row.prop(shading, "show_specular_highlight")
+
+            col.separator()
+
+            row = col.row()
+            row.prop(shading, "show_xray")
+
+            row = col.row()
+            row.active = not shading.show_xray
+            row.prop(shading, "show_shadows")
+            sub = row.row()
+            sub.active = shading.show_shadows and not shading.show_xray
+            sub.prop(shading, "shadow_intensity", text="")
+
+            row = col.row()
+            row.prop(shading, "show_object_outline")
+            sub = row.row()
+            sub.active = shading.show_object_outline
+            sub.prop(shading, "object_outline_color", text="")
+
+            layout.prop(scene.display, "light_direction", text="")
+            layout.prop(scene.display, "shadow_shift")
+            layout.prop(scene.display, "roughness")
+
+#Debug Zone
+
+#End Debug Zone
 
 def draw_device(self, context):
     scene = context.scene
@@ -755,20 +1067,33 @@ def get_panels():
     panels = []
     return panels
 
+#Textured Settings
+    #TODO: Possibly split up the solid and textured shading options. Should be easy. Just not a huge priority.
+
 #Renaming to "Unifier" is not necessary,
 #but will ultimately lead to better organization.
 classes = (
+    #Lamp:
     UnifierLampPreview,
-    UnifierLampLamp,
+    UnifierLampLampRealTime,
     UnifierLampShadow,
     UnifierLampArea,
     UnifierLampSpot,
     UnifierLampFalloff,
+    #Light Probe:
+    UnifierLightProbeContext,
+    UnifierLightProbeProbe,
+    UnifierLightProbeParallax,
+    UnifierLightProbeDisplay,
+    #Material:
     UnifierMaterialPreview,
     UnifierMaterialContext,
     UnifierMaterialSurface,
     UnifierMaterialOptions,
     UnifierMaterialViewport,
+    #Real-Time:
+    UnifierRealTimeShading,
+    #Post Process:
     UnifierPostProcessGTAO,
     UnifierPostProcessBlur,
     UnifierPostProcessDOF,
@@ -776,12 +1101,17 @@ classes = (
     UnifierPostProcessVolume,
     UnifierPostProcessSSS,
     UnifierPostProcessSSR,
-    UnifierPostProcessShadow,
-    UnifierPostProcessSample,
+    UnifierPostProcessHair,
     UnifierPostProcessGI,
     UnifierPostProcessFilm,
-    UnifierSolidDisplay,
+    UnifierPostProcessShadow,
+    UnifierPostProcessSample,
+    #Solid:
+    UnifierSolidShading,
+    #Matcap:
     UnifierMatcapSettings,
+    #Debug:
+    #UnifierDebug,
 )
 
 #This section broke the addon. This could happen again. Just copy from end of raytracer's ui.py file.
